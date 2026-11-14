@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hushcare — Private Medical Assistant</title>
+<style>
+  /* Layout: header; left "My health" record (profile, BMI, vitals with trends); right chat that knows the record. */
+  :root {
+    --bg: #f3f6f6; --surface: #ffffff; --raised: #eef2f2; --fg: #142227; --muted: #5d6e74; --line: #dce4e6;
+    --brand: #0d6b70; --brand-ink: #ffffff; --brand-soft: #e2f1f1; --me: #0d6b70; --me-ink: #ffffff;
+    --ok: #1d7a43; --ok-soft: #e4f4ea; --warn: #8f5b00; --warn-soft: #fff2d4;
+    --urgent: #b4500a; --urgent-soft: #fde9da; --er: #b42318; --er-soft: #fdeceb; --sos: #c2271c;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Ubuntu, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, "Ubuntu Mono", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) { :root {
+    --bg: #0d1416; --surface: #152024; --raised: #1b282c; --fg: #e4ecee; --muted: #93a5ab; --line: #263439;
+    --brand: #49b9bf; --brand-ink: #062226; --brand-soft: #12302f; --me: #1f6f74; --me-ink: #ffffff;
+    --ok: #5fcf8a; --ok-soft: #12291c; --warn: #e9b54d; --warn-soft: #2d2410;
+    --urgent: #f39a5b; --urgent-soft: #2f1d10; --er: #ff8a80; --er-soft: #381614; color-scheme: dark; } }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--fg); font: 15.5px/1.5 var(--sans); display: flex; flex-direction: column; }
+  button, input, textarea, select { font: inherit; color: inherit; }
+  :focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
+  [hidden] { display: none !important; }
+
+  .top { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+         padding: 9px max(16px, 2vw); background: var(--surface); border-bottom: 1px solid var(--line); }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .mark { width: 34px; height: 34px; border-radius: 10px; background: var(--brand); color: var(--brand-ink); display: grid; place-items: center; }
+  .brand b { display: block; font-size: 1.15rem; line-height: 1.1; }
+  .brand small { color: var(--muted); font-size: .78rem; }
+  .tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .pill { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px; border-radius: 999px; font-size: .78rem; font-weight: 600;
+          border: 1px solid var(--line); background: var(--raised); white-space: nowrap; }
+  .pill.private { color: var(--ok); background: var(--ok-soft); border-color: transparent; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .pill.ready .dot { background: var(--ok); }
+  .pill.down { color: var(--er); } .pill.down .dot { background: var(--er); }
+  .tbtn { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 6px 12px; font-size: .84rem; font-weight: 600; cursor: pointer; }
+  .tbtn:hover { border-color: var(--brand); }
+  .tbtn.primary { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); }
+
+  .tabs { display: none; }
+  .app { flex: 1; min-height: 0; display: grid; grid-template-columns: 400px minmax(0, 1fr); }
+
+  /* ---- My health ---- */
+  .me-col { min-height: 0; overflow-y: auto; border-right: 1px solid var(--line); background: var(--surface); padding: 16px; display: grid; gap: 14px; align-content: start; }
+  .who { display: flex; gap: 12px; align-items: center; }
+  .avatar { width: 52px; height: 52px; border-radius: 16px; background: var(--brand-soft); color: var(--brand); display: grid; place-items: center; font-weight: 800; font-size: 1.2rem; flex: none; }
+  .who h2 { margin: 0; font-size: 1.15rem; line-height: 1.2; }
+  .who p { margin: 2px 0 0; color: var(--muted); font-size: .86rem; }
+  .row-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  .sec { font-size: .72rem; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); margin: 4px 0 -4px; }
+  .tags { display: grid; gap: 8px; }
+  .tagrow { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 8px; font-size: .88rem; align-items: start; }
+  .tagrow > span:first-child { color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .chip { background: var(--raised); border-radius: 7px; padding: 2px 8px; font-size: .84rem; }
+  .chip.allergy { background: var(--er-soft); color: var(--er); font-weight: 600; }
+  .vgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .vc { border: 1px solid var(--line); border-radius: 12px; padding: 10px 11px 8px; display: grid; gap: 1px; background: var(--surface); min-width: 0; }
+  .vc .l { font-size: .76rem; color: var(--muted); font-weight: 600; }
+  .vc .v { font-size: 1.3rem; font-weight: 800; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+  .vc .v small { font-size: .72rem; font-weight: 600; color: var(--muted); margin-left: 3px; }
+  .vc .s { font-size: .74rem; font-weight: 700; }
+  .vc.ok .s { color: var(--ok); } .vc.watch .s { color: var(--warn); } .vc.alert .s { color: var(--er); }
+  .vc.alert { border-color: var(--er); background: var(--er-soft); }
+  .vc.empty .v { color: var(--muted); font-size: 1rem; font-weight: 600; }
+  .spark { height: 26px; width: 100%; }
+  .spark polyline { fill: none; stroke: var(--brand); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .spark circle { fill: var(--brand); }
+  .bmi { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--raised); border-radius: 12px; padding: 10px 12px; }
+  .bmi b { font-size: 1.2rem; }
+  .bmi span { font-size: .82rem; font-weight: 700; }
+  .bmi .ok { color: var(--ok); } .bmi .watch { color: var(--warn); }
+  .ref { font-size: .74rem; color: var(--muted); }
+  .start { border: 1px dashed var(--line); border-radius: 14px; padding: 16px; display: grid; gap: 10px; text-align: center; }
+  .start p { margin: 0; color: var(--muted); font-size: .9rem; }
+
+  /* ---- Chat ---- */
+  .chat { min-height: 0; display: flex; flex-direction: column; }
+  .thread { flex: 1; overflow-y: auto; }
+  .inner { max-width: 780px; margin: 0 auto; padding: 18px max(16px, 2.5vw) 10px; display: flex; flex-direction: column; gap: 12px; }
+  .welcome { text-align: center; padding: 4vh 6px 6px; display: grid; gap: 8px; justify-items: center; }
+  .welcome h1 { margin: 0; font-size: clamp(1.35rem, 2.6vw, 1.8rem); letter-spacing: -.01em; text-wrap: balance; }
+  .welcome p { margin: 0; color: var(--muted); max-width: 54ch; }
+  .sugs { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; width: 100%; margin-top: 10px; }
+  .sug { text-align: left; border: 1px solid var(--line); background: var(--surface); border-radius: 13px; padding: 10px 12px; cursor: pointer; display: grid; gap: 1px; }
+  .sug:hover { border-color: var(--brand); background: var(--brand-soft); }
+  .sug b { font-size: .92rem; } .sug span { color: var(--muted); font-size: .82rem; }
+  .sug.red b { color: var(--er); } .sug.red:hover { border-color: var(--er); background: var(--er-soft); }
+  .msg { display: flex; gap: 10px; align-items: flex-start; }
+  .msg.me { justify-content: flex-end; }
+  .av { width: 28px; height: 28px; border-radius: 8px; background: var(--brand); color: var(--brand-ink); display: grid; place-items: center; flex: none; margin-top: 2px; font-weight: 800; font-size: .8rem; }
+  .bubble { max-width: min(620px, 86%); border-radius: 16px; padding: 10px 14px; min-width: 0; }
+  .me .bubble { background: var(--me); color: var(--me-ink); border-bottom-right-radius: 5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .me .bubble img { display: block; width: 170px; max-width: 100%; border-radius: 10px; margin-bottom: 6px; }
+  .ai .bubble { background: var(--surface); border: 1px solid var(--line); border-bottom-left-radius: 5px; display: grid; gap: 7px; }
+  .ai .body p { margin: 0 0 6px; } .ai .body p:last-child { margin-bottom: 0; }
+  .ai .body ul { margin: 2px 0 6px; padding-left: 20px; display: grid; gap: 3px; }
+  .lvl { justify-self: start; display: inline-flex; gap: 6px; font-size: .76rem; font-weight: 700; padding: 2px 10px; border-radius: 999px; }
+  .lvl.l0 { background: var(--ok-soft); color: var(--ok); } .lvl.l1 { background: var(--warn-soft); color: var(--warn); }
+  .lvl.l2 { background: var(--urgent-soft); color: var(--urgent); } .lvl.l3 { background: var(--er-soft); color: var(--er); }
+  .lvl i { font-style: normal; font-weight: 500; opacity: .8; }
+  .foot { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; font-size: .73rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: 6px; }
+  .foot .m { font-family: var(--mono); }
+  .err { color: var(--er); font-weight: 600; }
+  .sos { background: var(--sos); color: #fff; border-radius: 14px; padding: 12px 15px; display: flex; gap: 12px; align-items: center; }
+  .sos b { display: block; font-size: 1.1rem; } .sos span { font-size: .86rem; }
+  .typing { color: var(--muted); font-size: .9rem; display: flex; align-items: center; gap: 8px; }
+  .dots span { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--brand); margin-right: 3px; animation: b 1s infinite; }
+  .dots span:nth-child(2) { animation-delay: .15s; } .dots span:nth-child(3) { animation-delay: .3s; }
+  @keyframes b { 50% { transform: translateY(-4px); opacity: .5; } }
+  .composer { flex: none; padding: 8px max(16px, 2.5vw) 12px; }
+  .cinner { max-width: 780px; margin: 0 auto; display: grid; gap: 6px; }
+  .ctx { font-size: .78rem; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .ctx .dot { background: var(--ok); }
+  .box { display: flex; align-items: flex-end; gap: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 6px; }
+  .box:focus-within { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+  .box textarea { flex: 1; border: 0; background: transparent; resize: none; padding: 8px 6px; max-height: 150px; min-height: 40px; outline: none; }
+  .ib { width: 40px; height: 40px; border-radius: 12px; border: 0; background: transparent; color: var(--muted); display: grid; place-items: center; cursor: pointer; flex: none; }
+  .ib:hover:not(:disabled) { background: var(--raised); color: var(--fg); }
+  .ib:disabled { opacity: .4; cursor: not-allowed; }
+  .send { background: var(--brand); color: var(--brand-ink); }
+  .send:hover:not(:disabled) { background: var(--brand); color: var(--brand-ink); filter: brightness(1.08); }
+  .attach { display: flex; align-items: center; gap: 8px; }
+  .attach img { width: 54px; height: 54px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); }
+  .attach button { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; font-size: .78rem; padding: 3px 8px; cursor: pointer; }
+  .fine { text-align: center; font-size: .72rem; color: var(--muted); }
+
+  /* ---- Overlays ---- */
+  .overlay { position: fixed; inset: 0; background: rgba(8, 18, 20, .45); display: grid; place-items: center; z-index: 20; padding: 16px; }
+  .modal { width: min(560px, 100%); max-height: 92vh; overflow-y: auto; background: var(--surface); border-radius: 18px; padding: 20px; display: grid; gap: 12px; }
+  .modal h2 { margin: 0; font-size: 1.15rem; }
+  .modal p { margin: 0; color: var(--muted); font-size: .88rem; }
+  .fgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .fgrid .full { grid-column: 1 / -1; }
+  .modal label { display: grid; gap: 4px; font-size: .8rem; font-weight: 600; color: var(--muted); }
+  .modal input, .modal select, .modal textarea { border: 1px solid var(--line); background: var(--raised); border-radius: 9px; padding: 8px 10px; width: 100%; color: var(--fg); }
+  .modal .acts { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+  .modal .msgline { color: var(--er); font-size: .85rem; font-weight: 600; min-height: 1em; }
+  .facts { display: flex; flex-wrap: wrap; gap: 6px; }
+  .fact { font-family: var(--mono); font-size: .74rem; background: var(--raised); border-radius: 7px; padding: 3px 8px; overflow-wrap: anywhere; }
+  .hist { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .hist li { background: var(--raised); border-radius: 9px; padding: 7px 10px; font-size: .85rem; display: grid; gap: 1px; }
+  .hist .w { font-family: var(--mono); font-size: .72rem; color: var(--muted); }
+  .del { border: 1px solid var(--er); color: var(--er); background: transparent; border-radius: 10px; padding: 9px 14px; font-weight: 700; cursor: pointer; }
+  .del.armed { background: var(--er); color: #fff; }
+
+  @media (max-width: 900px) {
+    .tabs { display: flex; gap: 6px; padding: 8px 16px 0; background: var(--bg); }
+    .tabs button { flex: 1; border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 8px; font-weight: 700; cursor: pointer; }
+    .tabs button.on { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); }
+    .app { grid-template-columns: minmax(0, 1fr); }
+    .me-col { border-right: 0; }
+    body[data-tab="chat"] .me-col { display: none; }
+    body[data-tab="health"] .chat { display: none; }
+    .pill.private { display: none; }
+  }
+  @media (max-width: 480px) { .fgrid { grid-template-columns: 1fr; } }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+</style>
+</head>
+<body data-tab="chat">
+<header class="top">
+  <div class="brand">
+    <div class="mark" aria-hidden="true"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></div>
+    <div><b>Hushcare</b><small>Private Medical Assistant</small></div>
+  </div>
+  <div class="tools">
+    <span class="pill private"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Running 100% on-device — no internet</span>
+    <span class="pill" id="mText"><span class="dot"></span><span>Chat</span></span>
+    <span class="pill" id="mVision" hidden><span class="dot"></span><span>Photos</span></span>
+    <button class="tbtn" id="openData" type="button">Your data</button>
+  </div>
+</header>
+<nav class="tabs" aria-label="Sections">
+  <button type="button" data-t="health">My health</button>
+  <button type="button" data-t="chat" class="on">Ask Hushcare</button>
+</nav>
+
+<div class="app">
+  <!-- ======== My health ======== -->
+  <aside class="me-col" id="mecol" aria-label="My health">
+    <div class="start" id="start" hidden>
+      <b>Set up your health record</b>
+      <p>Add your details and readings once. Hushcare uses them to personalize every answer, and they never leave this board.</p>
+      <div class="row-btns" style="justify-content:center">
+        <button class="tbtn primary" type="button" id="startEdit">Add my details</button>
+        <button class="tbtn" type="button" id="loadDemo">Load demo profile</button>
+      </div>
+    </div>
+    <div id="record" hidden>
+      <div class="who">
+        <div class="avatar" id="initials">?</div>
+        <div><h2 id="pname"></h2><p id="pline"></p></div>
+      </div>
+      <div class="row-btns" style="margin-top:12px">
+        <button class="tbtn" type="button" id="editP">Edit profile</button>
+        <button class="tbtn primary" type="button" id="logV">Log a reading</button>
+      </div>
+    </div>
+    <div class="bmi" id="bmi" hidden><div><div class="ref">Body mass index</div><b id="bmiV"></b></div><span id="bmiC"></span></div>
+    <div class="sec" id="vSec" hidden>Vitals · last 7 readings</div>
+    <div class="vgrid" id="vgrid"></div>
+    <div class="ref" id="vRef" hidden>Statuses use general reference ranges set in code. They are not a diagnosis.</div>
+    <div class="sec" id="tSec" hidden>Health details</div>
+    <div class="tags" id="tags"></div>
+  </aside>
+
+  <!-- ======== Chat ======== -->
+  <section class="chat" aria-label="Ask Hushcare">
+    <main class="thread" id="thread">
+      <div class="inner" id="inner">
+        <section class="welcome" id="welcome">
+          <h1 id="hello">Hi, I'm Hushcare. How can I help?</h1>
+          <p id="intro">Ask about symptoms, your readings, or your medicines. I know your health record, and nothing you share leaves this board.</p>
+          <div class="sugs" id="sugs"></div>
+        </section>
+      </div>
+    </main>
+    <footer class="composer">
+      <div class="cinner">
+        <div class="ctx"><span class="dot"></span><span id="ctx">Answers use your saved health record.</span></div>
+        <div class="attach" id="attach" hidden><img id="thumb" alt="Attached photo preview"><button type="button" id="unattach">Remove photo</button></div>
+        <form class="box" id="form">
+          <input type="file" id="file" accept="image/*" hidden>
+          <button class="ib" id="pick" type="button" aria-label="Attach a photo" title="Attach a photo" hidden>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="m21 17-5-5-8 7"/></svg>
+          </button>
+          <textarea id="q" rows="1" maxlength="1500" placeholder="Ask about your health or a symptom…" aria-label="Your message"></textarea>
+          <button class="ib send" id="send" type="submit" aria-label="Send">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </button>
+        </form>
+        <div class="fine">General information only, not a diagnosis. Not a substitute for a medical professional. In an emergency, call 911.</div>
+      </div>
+    </footer>
+  </section>
+</div>
+
+<!-- Profile editor -->
+<div class="overlay" id="pModal" hidden>
+  <form class="modal" id="pForm" aria-labelledby="pH">
+    <h2 id="pH">Your health profile</h2>
+    <p>Saved only on this board. Hushcare reads it to personalize answers.</p>
+    <div class="fgrid">
+      <label class="full" for="f_name">Name<input id="f_name" maxlength="60" placeholder="Alex"></label>
+      <label for="f_age">Age<input id="f_age" type="number" min="0" max="120"></label>
+      <label for="f_sex">Sex<select id="f_sex"><option value="">Prefer not to say</option><option>Female</option><option>Male</option><option>Other</option></select></label>
+      <label for="f_height">Height (inches)<input id="f_height" type="number" min="36" max="96" placeholder="70"></label>
+      <label for="f_weight">Weight (lb)<input id="f_weight" type="number" min="40" max="700" step="0.5" placeholder="180"></label>
+      <label class="full" for="f_cond">Conditions<input id="f_cond" maxlength="300" placeholder="e.g. high blood pressure, asthma"></label>
+      <label class="full" for="f_meds">Medications<input id="f_meds" maxlength="300" placeholder="e.g. lisinopril 10 mg daily"></label>
+      <label class="full" for="f_all">Allergies<input id="f_all" maxlength="200" placeholder="e.g. penicillin"></label>
+      <label class="full" for="f_goals">Goals<input id="f_goals" maxlength="300" placeholder="e.g. lower blood pressure, sleep better"></label>
+      <label class="full" for="f_notes">Notes<textarea id="f_notes" maxlength="400" rows="2" placeholder="Lifestyle, family history, anything else"></textarea></label>
+    </div>
+    <div class="msgline" id="pErr"></div>
+    <div class="acts"><button class="tbtn" type="button" data-close>Cancel</button><button class="tbtn primary" type="submit">Save profile</button></div>
+  </form>
+</div>
+
+<!-- Log a reading -->
+<div class="overlay" id="vModal" hidden>
+  <form class="modal" id="vForm" aria-labelledby="vH">
+    <h2 id="vH">Log a reading</h2>
+    <div class="fgrid">
+      <label class="full" for="v_kind">Type
+        <select id="v_kind">
+          <option value="bp">Blood pressure (mmHg)</option><option value="hr">Heart rate (bpm)</option>
+          <option value="glucose">Glucose (mg/dL)</option><option value="temp">Temperature (°F)</option>
+          <option value="weight">Weight (lb)</option><option value="sleep">Sleep (hours)</option>
+        </select></label>
+      <label for="v_val"><span id="v_lab">Systolic</span><input id="v_val" type="number" step="0.1" required></label>
+      <label for="v_val2" id="v_l2">Diastolic<input id="v_val2" type="number" step="1"></label>
+    </div>
+    <div class="msgline" id="vErr"></div>
+    <div class="acts"><button class="tbtn" type="button" data-close>Cancel</button><button class="tbtn primary" type="submit">Save reading</button></div>
+  </form>
+</div>
+
+<!-- Your data -->
+<div class="overlay" id="dModal" hidden>
+  <div class="modal" role="dialog" aria-labelledby="dH">
+    <h2 id="dH">Your data stays on this board</h2>
+    <p>Your profile, readings, and conversations are saved here, readable only by the device owner, and never sent anywhere.</p>
+    <div class="facts" id="facts"></div>
+    <ul class="hist" id="hist"></ul>
+    <div class="acts"><button class="del" id="del" type="button">Delete all my data</button><button class="tbtn" type="button" data-close>Close</button></div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const LEVELS = ["Self-care", "See a doctor", "Urgent care", "ER"];
+let msgs = [], image = null, busy = false, visionOK = false, snap = null, session = Math.random().toString(36).slice(2, 10);
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+function scrollDown() { const t = $("thread"); t.scrollTop = t.scrollHeight; }
+function fmt(n) { return Number.isInteger(n) ? String(n) : n.toFixed(1); }
+
+/* ---------- tabs (phone) ---------- */
+document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => {
+  document.body.dataset.tab = b.dataset.t;
+  document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("on", x === b));
+}));
+
+/* ---------- overlays ---------- */
+function open(id) { $(id).hidden = false; const f = $(id).querySelector("input,select,button"); if (f) f.focus(); }
+function closeAll() { ["pModal", "vModal", "dModal"].forEach((id) => { $(id).hidden = true; }); }
+document.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", closeAll));
+document.querySelectorAll(".overlay").forEach((o) => o.addEventListener("click", (e) => { if (e.target === o) closeAll(); }));
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAll(); });
+
+async function post(path, body) {
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  return r.json();
+}
+
+/* ---------- health record ---------- */
+function spark(series, kind) {
+  const vals = series.map((p) => p[0]);
+  if (vals.length < 2) return "";
+  const lo = Math.min(...vals), hi = Math.max(...vals), span = hi - lo || 1;
+  const pts = vals.map((v, i) => [4 + (i * 112) / (vals.length - 1), 22 - ((v - lo) / span) * 18]);
+  const last = pts[pts.length - 1];
+  return `<svg class="spark" viewBox="0 0 120 26" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts.map((p) => p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ")}"/><circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.6"/></svg>`;
+}
+function renderHealth(s) {
+  snap = s;
+  const p = s.profile || {};
+  const has = Object.keys(p).length > 0 || s.vitals.some((v) => v.latest);
+  $("start").hidden = has; $("record").hidden = !has;
+  ["vSec", "vRef", "tSec"].forEach((id) => { $(id).hidden = !has; });
+  if (has) {
+    const name = p.name || "Your health";
+    $("pname").textContent = name;
+    $("initials").textContent = (p.name || "?").replace(/\(.*\)/, "").trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase() || "?";
+    const ht = p.height_in ? `${Math.floor(p.height_in / 12)}′${p.height_in % 12}″` : "";
+    $("pline").textContent = [p.age && p.age + " yrs", p.sex, ht, p.weight_lb && p.weight_lb + " lb"].filter(Boolean).join(" · ") || "Add your details";
+    $("hello").textContent = p.name ? `Hi ${p.name.replace(/\(.*\)/, "").trim().split(" ")[0]}, how are you feeling today?` : "Hi, I'm Hushcare. How can I help?";
+  }
+  $("bmi").hidden = !s.bmi;
+  if (s.bmi) { $("bmiV").textContent = s.bmi.value; $("bmiC").textContent = s.bmi.category; $("bmiC").className = s.bmi.level; }
+  $("vgrid").replaceChildren(...(has ? s.vitals : []).map((c) => {
+    const d = el("div", "vc " + (c.latest ? c.level : "empty"));
+    d.append(el("div", "l", c.label));
+    const v = el("div", "v");
+    if (c.latest) {
+      v.textContent = c.kind === "bp" ? `${fmt(c.latest.value)}/${fmt(c.latest.value2)}` : fmt(c.latest.value);
+      v.append(el("small", null, c.unit));
+    } else v.textContent = "No readings";
+    d.append(v);
+    if (c.latest) {
+      d.append(el("div", "s", c.status + " · " + c.latest.ts.slice(5, 10).replace("-", "/")));
+      const sp = el("div"); sp.innerHTML = spark(c.series, c.kind); d.append(sp);
+    }
+    return d;
+  }));
+  const rows = [["Conditions", p.conditions], ["Medications", p.medications], ["Allergies", p.allergies, "allergy"], ["Goals", p.goals], ["Notes", p.notes]];
+  $("tags").replaceChildren(...rows.filter((r) => r[1]).map(([k, v, cls]) => {
+    const r = el("div", "tagrow"); r.append(el("span", null, k));
+    const c = el("div", "chips");
+    (k === "Notes" ? [v] : v.split(/,\s*/)).forEach((t) => c.append(el("span", "chip" + (cls ? " " + cls : ""), t)));
+    r.append(c); return r;
+  }));
+  const n = s.vitals.filter((v) => v.latest).length;
+  $("ctx").textContent = has ? `Answers use your health record: profile${n ? " and " + n + " vital types" : ""}.` : "No health record yet. Add one on the left to get personalized answers.";
+  renderSugs();
+}
+async function loadHealth() {
+  try { renderHealth(await (await fetch("/api/health", { cache: "no-store" })).json()); } catch (e) { /* keep last view */ }
+}
+
+const FIELDS = { name: "f_name", age: "f_age", sex: "f_sex", height_in: "f_height", weight_lb: "f_weight", conditions: "f_cond", medications: "f_meds", allergies: "f_all", goals: "f_goals", notes: "f_notes" };
+function editProfile() {
+  const p = (snap && snap.profile) || {};
+  Object.entries(FIELDS).forEach(([k, id]) => { $(id).value = p[k] || ""; });
+  $("pErr").textContent = ""; open("pModal");
+}
+$("editP").addEventListener("click", editProfile);
+$("startEdit").addEventListener("click", editProfile);
+$("pForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const body = {}; Object.entries(FIELDS).forEach(([k, id]) => { body[k] = $(id).value.trim(); });
+  try { const d = await post("/api/profile", body); if (!d.ok) { $("pErr").textContent = d.error; return; } renderHealth(d); closeAll(); }
+  catch (err) { $("pErr").textContent = "Couldn't save. Is the board reachable?"; }
+});
+$("loadDemo").addEventListener("click", async () => { try { const d = await post("/api/demo-profile", {}); if (d.ok) renderHealth(d); } catch (e) { /* ignore */ } });
+
+function syncKind() {
+  const k = $("v_kind").value;
+  $("v_l2").hidden = k !== "bp";
+  $("v_lab").textContent = { bp: "Systolic", hr: "Beats per minute", glucose: "mg/dL", temp: "°F", weight: "Pounds", sleep: "Hours" }[k];
+}
+$("v_kind").addEventListener("change", syncKind);
+$("logV").addEventListener("click", () => { $("vErr").textContent = ""; $("v_val").value = ""; $("v_val2").value = ""; syncKind(); open("vModal"); });
+$("vForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const body = { kind: $("v_kind").value, value: $("v_val").value, value2: $("v_val2").value || null };
+  try { const d = await post("/api/vitals", body); if (!d.ok) { $("vErr").textContent = d.error; return; } renderHealth(d); closeAll(); }
+  catch (err) { $("vErr").textContent = "Couldn't save. Is the board reachable?"; }
+});
+
+/* ---------- chat ---------- */
+function renderSugs() {
+  const p = (snap && snap.profile) || {};
+  const has = Object.keys(p).length > 0;
+  const list = has ? [
+    { t: "Summarize my health", d: "what my record says and 3 next steps", q: "Summarize my health record in plain language and give me 3 practical next steps toward my goals." },
+    { t: "How are my readings?", d: "trends in my latest vitals", q: "Look at my latest readings and their trends. What looks good, and what should I keep an eye on?" },
+    visionOK ? { t: "Check a photo", d: "rash, cut, bite or bruise", photo: true }
+             : { t: "Can I take ibuprofen?", d: "with my current medicines", q: "Can I take ibuprofen for a headache with my current medications?" },
+    { t: "Chest pain", d: "emergency example", q: "Sudden crushing chest pain spreading to my left arm, sweating and nausea for 20 minutes.", red: true },
+  ] : [
+    { t: "Sore throat and cough", d: "3 days, mild fever", q: "I've had a sore throat and dry cough for three days, mild fever last night, worse at night." },
+    { t: "Can I take ibuprofen?", d: "with blood pressure medicine", q: "Can I take ibuprofen for a headache while I'm on lisinopril?" },
+    visionOK ? { t: "Check a photo", d: "rash, cut, bite or bruise", photo: true }
+             : { t: "Sleeping badly", d: "tips for better rest", q: "I've been sleeping badly for two weeks, waking up at 3 am. What can I try?" },
+    { t: "Chest pain", d: "emergency example", q: "Sudden crushing chest pain spreading to my left arm, sweating and nausea for 20 minutes.", red: true },
+  ];
+  $("sugs").replaceChildren(...list.map((s) => {
+    const b = el("button", "sug" + (s.red ? " red" : "")); b.type = "button";
+    b.append(el("b", null, s.t), el("span", null, s.d));
+    b.addEventListener("click", () => {
+      if (s.photo) { if (!visionOK) { alertInline("The photo model isn't installed on this board."); return; } $("q").value = "What is this and what should I do?"; $("file").click(); return; }
+      $("q").value = s.q; autosize(); $("q").focus();
+    });
+    return b;
+  }));
+}
+
+function autosize() { const q = $("q"); q.style.height = "auto"; q.style.height = Math.min(q.scrollHeight, 150) + "px"; }
+$("q").addEventListener("input", autosize);
+$("q").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
+$("form").addEventListener("submit", (e) => { e.preventDefault(); send(); });
+$("pick").addEventListener("click", () => $("file").click());
+$("file").addEventListener("change", () => {
+  const f = $("file").files[0]; $("file").value = "";
+  if (!f) return;
+  const url = URL.createObjectURL(f); const img = new Image();
+  img.onload = () => {
+    const c = document.createElement("canvas"); c.width = c.height = 512;
+    const s = Math.min(img.naturalWidth, img.naturalHeight); const ctx = c.getContext("2d");
+    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, 512, 512);
+    ctx.drawImage(img, (img.naturalWidth - s) / 2, (img.naturalHeight - s) / 2, s, s, 0, 0, 512, 512);
+    image = c.toDataURL("image/png"); URL.revokeObjectURL(url);
+    $("thumb").src = image; $("attach").hidden = false; $("q").focus();
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); alertInline("That file couldn't be read as an image."); };
+  img.src = url;
+});
+$("unattach").addEventListener("click", () => { image = null; $("attach").hidden = true; });
+
+function alertInline(text) { $("welcome").hidden = true; const m = el("div", "msg ai"); const b = el("div", "bubble"); b.append(el("div", "err", text)); m.append(el("div", "av", "H"), b); $("inner").append(m); scrollDown(); }
+function renderBody(text) {
+  const body = el("div", "body"); let ul = null;
+  text.split("\n").forEach((ln) => {
+    const t = ln.trim(); if (!t) { ul = null; return; }
+    const b = t.match(/^([-*•]|\d+[.)])\s+(.*)$/);
+    if (b) { if (!ul) { ul = el("ul"); body.append(ul); } ul.append(el("li", null, b[2])); } else { ul = null; body.append(el("p", null, t)); }
+  });
+  return body;
+}
+function addMe(text, img) {
+  $("welcome").hidden = true;
+  const m = el("div", "msg me"); const b = el("div", "bubble");
+  if (img) { const i = el("img"); i.src = img; i.alt = "Your photo"; b.append(i); }
+  if (text) b.append(document.createTextNode(text));
+  m.append(b); $("inner").append(m); scrollDown();
+}
+function addTyping(isImage) {
+  const m = el("div", "msg ai"); const b = el("div", "bubble"); const t = el("div", "typing");
+  const d = el("span", "dots"); d.append(el("span"), el("span"), el("span"));
+  const what = isImage ? "Looking at your photo on the NPU… " : "Thinking on the NPU… ";
+  const label = el("span", null, what + "0.0 s"); t.append(d, label); b.append(t);
+  m.append(el("div", "av", "H"), b); $("inner").append(m); scrollDown();
+  const t0 = performance.now();
+  const iv = setInterval(() => { label.textContent = what + ((performance.now() - t0) / 1000).toFixed(1) + " s"; }, 100);
+  return { m, stop: () => clearInterval(iv), t0 };
+}
+function addAI(d, secs) {
+  if (d.emergency) {
+    const s = el("div", "sos");
+    s.innerHTML = '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>';
+    const txt = el("div"); txt.append(el("b", null, "Seek emergency care now — call 911"), el("span", null, "Detected: " + d.red_flags.join(", ")));
+    if (d.crisis_line) { txt.append(el("br"), el("span", null, "Thinking about suicide or self-harm? Call or text 988.")); }
+    s.append(txt); $("inner").append(s);
+  }
+  const m = el("div", "msg ai"); const b = el("div", "bubble");
+  if (d.urgency) {
+    const p = el("span", "lvl l" + Math.max(LEVELS.indexOf(d.urgency), 0), d.urgency);
+    p.append(el("i", null, d.urgency_source === "red-flag rule" ? "· emergency rule" : "· suggested")); b.append(p);
+  }
+  if (d.lfm.ok && d.reply) b.append(renderBody(d.reply));
+  else b.append(el("div", "err", "The local model didn't answer (" + (d.lfm.error || "no text") + "). Try again." + (d.emergency ? " The emergency check above still ran." : "")));
+  const f = el("div", "foot");
+  f.append(el("span", null, "Not a diagnosis."), el("span", "m", `${d.lfm.engine} · ${d.lfm.compute} · ${d.lfm.tokens} tokens · ${secs} s`));
+  b.append(f); m.append(el("div", "av", "H"), b); $("inner").append(m); scrollDown();
+}
+async function send() {
+  if (busy) return;
+  const text = $("q").value.trim();
+  if (!text && !image) { $("q").focus(); return; }
+  busy = true; $("send").disabled = true;
+  const img = image; addMe(text, img);
+  msgs.push({ role: "user", content: img ? (text ? text + " [photo attached]" : "[photo attached]") : text });
+  $("q").value = ""; autosize(); image = null; $("attach").hidden = true;
+  const typing = addTyping(!!img);
+  try {
+    const sendMsgs = msgs.map((m, k) => (k === msgs.length - 1 ? { role: "user", content: text } : m));
+    const d = await post("/api/chat", { messages: sendMsgs, image: img, session });
+    typing.stop(); typing.m.remove();
+    if (!d.ok) { alertInline(d.error || "Something went wrong."); msgs.pop(); return; }
+    addAI(d, ((performance.now() - typing.t0) / 1000).toFixed(1));
+    msgs.push({ role: "assistant", content: d.reply || "" });
+  } catch (e) {
+    typing.stop(); typing.m.remove(); msgs.pop();
+    alertInline("Can't reach the app on the board. Check the connection and try again.");
+  } finally { busy = false; $("send").disabled = false; $("q").focus(); }
+}
+
+/* ---------- status + data ---------- */
+async function health() {
+  try {
+    const d = await (await fetch("/health", { cache: "no-store" })).json();
+    $("mText").className = "pill " + (d.lfm_server ? "ready" : "down");
+    $("mText").lastChild.textContent = d.lfm_server ? "Chat ready · NPU" : "Chat model offline";
+    const was = visionOK; visionOK = !!d.vision;
+    $("mVision").hidden = !visionOK; $("pick").hidden = !visionOK;
+    if (visionOK) { $("mVision").className = "pill ready"; $("mVision").lastChild.textContent = "Photos ready · NPU"; }
+    $("intro").textContent = "Ask about symptoms, your readings, or your medicines" + (visionOK ? ", or show me a photo of a rash or cut" : "") + ". I know your health record, and nothing you share leaves this board.";
+    $("q").placeholder = visionOK ? "Ask about your health, a symptom, or a photo…" : "Ask about your health or a symptom…";
+    if (was !== visionOK) renderSugs();
+  } catch (e) { $("mText").className = "pill down"; $("mText").lastChild.textContent = "App unreachable"; }
+}
+async function loadData() {
+  try {
+    const d = await (await fetch("/api/history", { cache: "no-store" })).json(); const s = d.storage;
+    const facts = s.enabled ? [`${s.records} conversation turns`, s.path.replace(/records\.jsonl$/, ""), `permissions ${s.mode ? s.mode.replace("0o", "") : "600"} (owner only)`, "not encrypted", "0 network uploads"] : ["saving turned off"];
+    $("facts").replaceChildren(...facts.map((t) => el("span", "fact", t)));
+    $("hist").replaceChildren(...d.records.slice(0, 12).map((r) => {
+      const li = el("li"); li.append(el("span", "w", (r.ts || "").replace("T", " ").slice(0, 16) + " · " + r.result.urgency + (r.input.image_attached ? " · photo" : "")), el("span", null, r.input.symptoms));
+      return li;
+    }));
+  } catch (e) { $("facts").replaceChildren(el("span", "fact", "unavailable")); }
+}
+$("openData").addEventListener("click", () => { open("dModal"); loadData(); });
+let armed = null;
+$("del").addEventListener("click", async () => {
+  const b = $("del");
+  if (!armed) { b.classList.add("armed"); b.textContent = "Click again to delete everything"; armed = setTimeout(() => { armed = null; b.classList.remove("armed"); b.textContent = "Delete all my data"; }, 3500); return; }
+  clearTimeout(armed); armed = null;
+  try { await post("/api/delete-all", {}); } finally {
+    b.classList.remove("armed"); b.textContent = "Delete all my data"; loadData(); loadHealth();
+    msgs = []; [...$("inner").children].forEach((c) => { if (c.id !== "welcome") c.remove(); }); $("welcome").hidden = false;
+  }
+});
+
+health(); loadHealth(); setInterval(health, 15000); $("q").focus();
+</script>
+</body>
+</html>

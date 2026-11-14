@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hushcare — Private Medical Assistant</title>
+<style>
+  /* Layout: header with live status; two columns (intake | pipeline + answer); privacy strip below. All inline, no network. */
+  :root {
+    --bg: #f3f6f6; --surface: #ffffff; --raised: #f8fafa; --fg: #142227; --muted: #5a6b71; --line: #dbe3e5;
+    --brand: #0d6b70; --brand-ink: #ffffff; --brand-soft: #e1f1f1;
+    --ok: #1d7a43; --ok-soft: #e4f4ea; --warn: #8f5b00; --warn-soft: #fff2d4;
+    --urgent: #b4500a; --urgent-soft: #fde9da; --er: #b42318; --er-soft: #fdeceb;
+    --idle: #e7ecee; --shadow: 0 1px 2px rgba(15,35,40,.06), 0 4px 16px rgba(15,35,40,.05);
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Ubuntu, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, "Ubuntu Mono", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) { :root {
+    --bg: #0d1416; --surface: #141e21; --raised: #19252a; --fg: #e4ecee; --muted: #93a5ab; --line: #263439;
+    --brand: #49b9bf; --brand-ink: #062226; --brand-soft: #12302f;
+    --ok: #5fcf8a; --ok-soft: #12291c; --warn: #e9b54d; --warn-soft: #2d2410;
+    --urgent: #f39a5b; --urgent-soft: #2f1d10; --er: #ff8a80; --er-soft: #381614;
+    --idle: #223035; --shadow: none; color-scheme: dark; } }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--bg); color: var(--fg); font: 16px/1.5 var(--sans); }
+  button, input, textarea { font: inherit; color: inherit; }
+  :focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
+
+  .top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
+         padding: 10px max(16px, 3vw); background: var(--surface); border-bottom: 1px solid var(--line); }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .mark { width: 40px; height: 40px; border-radius: 11px; background: var(--brand); color: var(--brand-ink);
+          display: grid; place-items: center; flex: none; }
+  .brand h1 { margin: 0; font-size: 1.35rem; letter-spacing: -.01em; line-height: 1.1; }
+  .brand p { margin: 0; color: var(--muted); font-size: .85rem; }
+  .pills { display: flex; flex-wrap: wrap; gap: 8px; }
+  .pill { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border-radius: 999px;
+          font-size: .82rem; font-weight: 600; border: 1px solid var(--line); background: var(--raised); white-space: nowrap; }
+  .pill.private { color: var(--ok); background: var(--ok-soft); border-color: transparent; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .pill.ready .dot { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+  .pill.down { color: var(--er); }
+  .pill.down .dot { background: var(--er); }
+
+  main { max-width: 1240px; margin: 0 auto; padding: 16px max(16px, 3vw) 32px;
+         display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 18px; align-items: start; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 18px 20px; }
+  h2 { margin: 0 0 4px; font-size: 1.15rem; }
+  .sub { margin: 0; color: var(--muted); font-size: .92rem; }
+
+  .cases { margin: 12px 0 2px; }
+  .cases-label { font-size: .78rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { border: 1px solid var(--line); background: var(--raised); border-radius: 999px; padding: 7px 13px; cursor: pointer;
+          font-size: .88rem; font-weight: 600; transition: border-color .15s, background .15s; }
+  .chip:hover { border-color: var(--brand); background: var(--brand-soft); }
+  .chip.red { color: var(--er); }
+  .chip.red:hover { border-color: var(--er); background: var(--er-soft); }
+
+  form { display: grid; gap: 10px; margin-top: 12px; }
+  .row { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; }
+  label { display: grid; gap: 5px; font-size: .88rem; font-weight: 600; }
+  .lt { display: block; }
+  label span.opt { color: var(--muted); font-weight: 400; }
+  input, textarea { width: 100%; background: var(--raised); border: 1px solid var(--line); border-radius: 10px; padding: 8px 11px; }
+  input:focus, textarea:focus { border-color: var(--brand); outline: none; box-shadow: 0 0 0 3px var(--brand-soft); }
+  textarea { resize: vertical; min-height: 46px; }
+  #symptoms { min-height: 84px; font-size: 1.02rem; }
+  .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+  .go { background: var(--brand); color: var(--brand-ink); border: 0; border-radius: 12px; padding: 11px 22px;
+        font-weight: 700; font-size: 1.02rem; cursor: pointer; display: inline-flex; align-items: center; gap: 10px; }
+  .go:disabled { opacity: .7; cursor: progress; }
+  .kbd { color: var(--muted); font-size: .82rem; }
+  .ghost { background: none; border: 0; color: var(--muted); cursor: pointer; text-decoration: underline; font-size: .88rem; padding: 0; }
+
+  .right { display: grid; gap: 12px; min-width: 0; }
+  .pipe { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .step { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; display: grid; gap: 2px;
+          transition: border-color .2s, background .2s; min-width: 0; }
+  .step .n { display: flex; align-items: center; gap: 8px; font-size: .74rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .step .ic { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; background: var(--idle); color: var(--muted); flex: none; }
+  .step .t { font-weight: 700; font-size: .95rem; }
+  .step .d { color: var(--muted); font-size: .84rem; font-family: var(--mono); overflow-wrap: anywhere; }
+  .step.run { border-color: var(--brand); background: var(--brand-soft); }
+  .step.run .ic { background: var(--brand); color: var(--brand-ink); animation: pulse 1s ease-in-out infinite; }
+  .step.done .ic { background: var(--ok); color: #fff; }
+  .step.flag { border-color: var(--er); background: var(--er-soft); }
+  .step.flag .ic { background: var(--er); color: #fff; }
+  .step.fail { border-color: var(--er); }
+  .step.fail .ic { background: var(--er); color: #fff; }
+  @keyframes pulse { 50% { transform: scale(.82); opacity: .7; } }
+
+  .empty { text-align: center; padding: 36px 20px; color: var(--muted); }
+  .empty .big { font-size: 1.1rem; font-weight: 700; color: var(--fg); margin-bottom: 4px; }
+
+  .sos { background: #c2271c; color: #fff; border-radius: 16px; padding: 18px 22px; display: flex; gap: 16px; align-items: center; }
+  .sos svg { flex: none; }
+  .sos .h { font-size: 1.45rem; font-weight: 800; line-height: 1.15; }
+  .sos .s { font-size: .95rem; opacity: .95; margin-top: 2px; }
+  .sos .crisis { margin-top: 6px; font-weight: 700; }
+
+  .meter-wrap { display: grid; gap: 8px; }
+  .meter-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .level { font-size: 1.6rem; font-weight: 800; letter-spacing: -.01em; }
+  .src { font-size: .82rem; color: var(--muted); }
+  .meter { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .seg { display: grid; gap: 6px; }
+  .bar { height: 10px; border-radius: 6px; background: var(--idle); transition: background .3s; }
+  .seg span { font-size: .78rem; color: var(--muted); font-weight: 600; }
+  .seg.on span { color: var(--fg); }
+  .seg.l0.on .bar { background: var(--ok); } .seg.l1.on .bar { background: var(--warn); }
+  .seg.l2.on .bar { background: var(--urgent); } .seg.l3.on .bar { background: var(--er); }
+  .lv0 { color: var(--ok); } .lv1 { color: var(--warn); } .lv2 { color: var(--urgent); } .lv3 { color: var(--er); }
+
+  .answer { display: grid; gap: 14px; }
+  .blocks { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+  .block h3 { margin: 0 0 6px; font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .block p { margin: 0; }
+  .block ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+  .block.full { grid-column: 1 / -1; }
+  .disclaimer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+                border-top: 1px solid var(--line); padding-top: 14px; font-weight: 700; }
+  .meta { font-family: var(--mono); font-size: .8rem; color: var(--muted); font-weight: 400; }
+  .err { color: var(--er); font-weight: 600; }
+
+  .privacy { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: start; }
+  .privacy h2 { display: flex; align-items: center; gap: 8px; }
+  .facts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .fact { font-family: var(--mono); font-size: .8rem; background: var(--raised); border: 1px solid var(--line); border-radius: 8px; padding: 4px 9px; overflow-wrap: anywhere; }
+  .hist { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 6px; }
+  .hist li { display: grid; grid-template-columns: 70px 120px minmax(0, 1fr); gap: 10px; font-size: .9rem; padding: 8px 10px;
+             background: var(--raised); border-radius: 8px; align-items: center; }
+  .hist .when { font-family: var(--mono); color: var(--muted); font-size: .8rem; }
+  .hist .lvl { font-weight: 700; font-size: .85rem; }
+  .hist .txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .del { border: 1px solid var(--er); color: var(--er); background: transparent; border-radius: 10px; padding: 10px 16px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+  .del.armed { background: var(--er); color: #fff; }
+
+  footer { max-width: 1240px; margin: 0 auto; padding: 0 max(16px, 3vw) 32px; color: var(--muted); font-size: .85rem; }
+
+  @media (max-width: 900px) {
+    main { grid-template-columns: minmax(0, 1fr); }
+    .privacy { grid-template-columns: minmax(0, 1fr); }
+  }
+  @media (max-width: 560px) {
+    .pipe { grid-template-columns: minmax(0, 1fr); }
+    .blocks { grid-template-columns: minmax(0, 1fr); }
+    .row { grid-template-columns: minmax(0, 1fr); }
+    .hist li { grid-template-columns: 60px minmax(0, 1fr); }
+    .hist .txt { grid-column: 1 / -1; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <div class="mark" aria-hidden="true">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+    </div>
+    <div>
+      <h1>Hushcare</h1>
+      <p>Private Medical Assistant</p>
+    </div>
+  </div>
+  <div class="pills">
+    <span class="pill private">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+      Running 100% on-device — no internet
+    </span>
+    <span class="pill" id="model"><span class="dot"></span><span id="modelTxt">Checking model…</span></span>
+  </div>
+</header>
+
+<main>
+  <section class="card" aria-labelledby="intakeH">
+    <h2 id="intakeH">What's going on?</h2>
+    <p class="sub">Describe your symptoms. Everything stays on this board.</p>
+
+    <div class="cases">
+      <div class="cases-label">Try a demo case</div>
+      <div class="chips" id="chips"></div>
+    </div>
+
+    <form id="form" autocomplete="off">
+      <div class="row">
+        <label for="age"><span class="lt">Age</span><input id="age" name="age" type="number" min="0" max="120" inputmode="numeric" placeholder="e.g. 34"></label>
+        <label for="conditions"><span class="lt">Conditions <span class="opt">optional</span></span>
+          <input id="conditions" name="conditions" maxlength="1500" placeholder="e.g. asthma, type 2 diabetes"></label>
+      </div>
+      <label for="medications"><span class="lt">Medications <span class="opt">optional</span></span>
+        <input id="medications" name="medications" maxlength="1500" placeholder="e.g. metformin 500 mg"></label>
+      <label for="symptoms"><span class="lt">Symptoms</span>
+        <textarea id="symptoms" name="symptoms" maxlength="1500" required placeholder="What are you feeling, and since when?"></textarea></label>
+      <div class="actions">
+        <button class="go" id="go" type="submit">Check symptoms</button>
+        <span class="kbd">or press Ctrl/Cmd + Enter</span>
+        <button class="ghost" id="clear" type="button">Clear</button>
+      </div>
+    </form>
+  </section>
+
+  <div class="right">
+    <div class="pipe" aria-live="polite">
+      <div class="step" id="st1"><div class="n"><span class="ic">1</span>Safety check</div><div class="t">Emergency rules in code</div><div class="d" id="st1d">waiting</div></div>
+      <div class="step" id="st2"><div class="n"><span class="ic">2</span>Local AI</div><div class="t">LFM3 on the NPU</div><div class="d" id="st2d">waiting</div></div>
+      <div class="step" id="st3"><div class="n"><span class="ic">3</span>Storage</div><div class="t">Saved on this board</div><div class="d" id="st3d">waiting</div></div>
+    </div>
+
+    <div class="sos" id="sos" hidden role="alert">
+      <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+      <div>
+        <div class="h">Seek emergency care now — call 911</div>
+        <div class="s" id="sosWhy"></div>
+        <div class="crisis" id="crisis" hidden>Thinking about suicide or self-harm? Call or text 988, the Suicide &amp; Crisis Lifeline.</div>
+      </div>
+    </div>
+
+    <section class="card" id="out">
+      <div class="empty" id="empty">
+        <div class="big">Your guidance appears here</div>
+        <div>Pick a demo case or type your own, then press <b>Check symptoms</b>.</div>
+      </div>
+
+      <div class="answer" id="answer" hidden>
+        <div class="meter-wrap">
+          <div class="meter-head">
+            <div><span class="src">Urgency</span><div class="level" id="level"></div></div>
+            <span class="src" id="src"></span>
+          </div>
+          <div class="meter" id="meter">
+            <div class="seg l0"><div class="bar"></div><span>Self-care</span></div>
+            <div class="seg l1"><div class="bar"></div><span>See a doctor</span></div>
+            <div class="seg l2"><div class="bar"></div><span>Urgent care</span></div>
+            <div class="seg l3"><div class="bar"></div><span>ER</span></div>
+          </div>
+        </div>
+        <p class="err" id="err" hidden></p>
+        <div class="blocks">
+          <div class="block full" id="infoB"><h3>What this could relate to</h3><p id="info"></p></div>
+          <div class="block" id="careB"><h3>Self-care</h3><ul id="care"></ul></div>
+          <div class="block" id="qB"><h3>Ask your doctor</h3><ul id="qs"></ul></div>
+          <div class="block full" id="rawB"><p id="raw" style="white-space:pre-wrap"></p></div>
+        </div>
+        <div class="disclaimer"><span id="disc">Not a substitute for a medical professional.</span><span class="meta" id="meta"></span></div>
+      </div>
+    </section>
+  </div>
+
+  <section class="card privacy" aria-labelledby="privH">
+    <div>
+      <h2 id="privH">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+        Your data stays on this board
+      </h2>
+      <p class="sub">Each check is saved here, readable only by the device owner, and never sent anywhere.</p>
+      <div class="facts" id="facts"></div>
+      <ul class="hist" id="hist"></ul>
+    </div>
+    <button class="del" id="del" type="button">Delete all my data</button>
+  </section>
+</main>
+<footer>Hushcare gives general information only. It does not diagnose and is not a substitute for a medical professional. In an emergency, call 911.</footer>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const LEVELS = ["Self-care", "See a doctor", "Urgent care", "ER"];
+const CASES = [
+  { label: "Cough & sore throat", age: "34", conditions: "asthma", medications: "albuterol inhaler as needed",
+    symptoms: "Sore throat and a dry cough for three days, mild fever last night, worse at night." },
+  { label: "Itchy rash", age: "27", conditions: "", medications: "",
+    symptoms: "Itchy red rash on my forearm since gardening yesterday, no swelling anywhere else." },
+  { label: "Tired & thirsty", age: "70", conditions: "type 2 diabetes", medications: "metformin 500 mg twice daily",
+    symptoms: "More tired than usual for a week and very thirsty, getting up at night to pee." },
+  { label: "Chest pain", red: true, age: "62", conditions: "high blood pressure", medications: "lisinopril",
+    symptoms: "Sudden crushing chest pain spreading to my left arm, sweating and nausea for 20 minutes." },
+  { label: "Stroke signs", red: true, age: "71", conditions: "atrial fibrillation", medications: "apixaban",
+    symptoms: "My face is drooping on one side and my speech is slurred, started 10 minutes ago." },
+];
+
+CASES.forEach((c) => {
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "chip" + (c.red ? " red" : ""); b.textContent = c.label;
+  b.addEventListener("click", () => {
+    ["age", "conditions", "medications", "symptoms"].forEach((k) => { $(k).value = c[k]; });
+    $("symptoms").focus({ preventScroll: true });
+  });
+  $("chips").appendChild(b);
+});
+
+function setStep(n, state, text) {
+  const el = $("st" + n);
+  el.className = "step" + (state ? " " + state : "");
+  el.querySelector(".ic").textContent = state === "done" ? "✓" : (state === "flag" || state === "fail") ? "!" : String(n);
+  $("st" + n + "d").textContent = text;
+}
+function resetSteps() { setStep(1, "", "waiting"); setStep(2, "", "waiting"); setStep(3, "", "waiting"); }
+
+function fillList(el, items) {
+  el.replaceChildren(...items.map((t) => { const li = document.createElement("li"); li.textContent = t; return li; }));
+  el.parentElement.hidden = items.length === 0;
+}
+
+async function health() {
+  try {
+    const d = await (await fetch("/health", { cache: "no-store" })).json();
+    $("model").className = "pill " + (d.lfm_server ? "ready" : "down");
+    $("modelTxt").textContent = d.lfm_server ? "LFM3 ready · NPU" : "Model server offline";
+  } catch (e) {
+    $("model").className = "pill down"; $("modelTxt").textContent = "App unreachable";
+  }
+}
+
+async function loadHistory() {
+  try {
+    const d = await (await fetch("/api/history", { cache: "no-store" })).json();
+    const s = d.storage;
+    const facts = s.enabled
+      ? [`${s.records} record${s.records === 1 ? "" : "s"}`, s.path, `permissions ${s.mode ? s.mode.replace("0o", "") : "—"} (owner only)`, "not encrypted", "0 network uploads"]
+      : ["saving turned off (--no-store)"];
+    $("facts").replaceChildren(...facts.map((t) => { const s2 = document.createElement("span"); s2.className = "fact"; s2.textContent = t; return s2; }));
+    $("hist").replaceChildren(...d.records.slice(0, 5).map((r) => {
+      const li = document.createElement("li");
+      const w = document.createElement("span"); w.className = "when"; w.textContent = (r.ts || "").slice(11, 16);
+      const l = document.createElement("span"); const i = LEVELS.indexOf(r.result.urgency);
+      l.className = "lvl lv" + Math.max(i, 0); l.textContent = r.result.urgency;
+      const t = document.createElement("span"); t.className = "txt"; t.textContent = r.input.symptoms;
+      li.append(w, l, t); return li;
+    }));
+  } catch (e) { $("facts").textContent = "Storage status unavailable."; }
+}
+
+let timer = null;
+async function submit() {
+  const body = Object.fromEntries(new FormData($("form")).entries());
+  if (!body.symptoms || !body.symptoms.trim()) { $("symptoms").focus(); return; }
+  $("go").disabled = true; $("go").textContent = "Checking…";
+  $("sos").hidden = true; $("answer").hidden = true; $("empty").hidden = false;
+  $("empty").querySelector(".big").textContent = "Thinking on the NPU…";
+  $("empty").querySelector("div:last-child").textContent = "Nothing leaves this board.";
+  resetSteps();
+  setStep(1, "run", "scanning symptoms");
+  setStep(2, "run", "0.0 s");
+  const t0 = performance.now();
+  timer = setInterval(() => setStep(2, "run", ((performance.now() - t0) / 1000).toFixed(1) + " s"), 100);
+  try {
+    const r = await fetch("/api/assess", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const d = await r.json();
+    clearInterval(timer);
+    if (!d.ok) { throw new Error(d.error || "Request failed."); }
+    const secs = ((performance.now() - t0) / 1000).toFixed(1);
+    if (d.emergency) setStep(1, "flag", "red flag: " + d.red_flags.join(", "));
+    else setStep(1, "done", "no red flags");
+    if (d.lfm.ok) setStep(2, "done", `${d.lfm.tokens} tokens · ${secs} s`);
+    else setStep(2, "fail", "model unavailable");
+    if (d.record_id) setStep(3, "done", "record " + d.record_id.slice(0, 6));
+    else setStep(3, "", d.store_error ? "not saved" : "saving off");
+    render(d);
+  } catch (e) {
+    clearInterval(timer);
+    setStep(2, "fail", "error");
+    $("empty").hidden = false;
+    $("empty").querySelector(".big").textContent = "Couldn't get an answer";
+    $("empty").querySelector("div:last-child").textContent = e.message === "Failed to fetch" ? "The app on the board is unreachable." : e.message;
+  } finally {
+    $("go").disabled = false; $("go").textContent = "Check symptoms";
+    loadHistory();
+  }
+}
+
+function render(d) {
+  $("sos").hidden = !d.emergency;
+  $("sosWhy").textContent = d.emergency ? "Detected: " + d.red_flags.join(", ") : "";
+  $("crisis").hidden = !d.crisis_line;
+  const i = Math.max(LEVELS.indexOf(d.urgency), 0);
+  $("level").textContent = d.urgency;
+  $("level").className = "level lv" + i;
+  $("src").textContent = d.urgency_source === "red-flag rule" ? "set by the emergency rule" :
+                         d.urgency_source === "model" ? "suggested by the local model" : "default";
+  document.querySelectorAll("#meter .seg").forEach((s, k) => s.classList.toggle("on", k === i));
+  $("info").textContent = d.info; $("infoB").hidden = !d.info;
+  fillList($("care"), d.self_care); fillList($("qs"), d.questions);
+  $("raw").textContent = d.raw || ""; $("rawB").hidden = !d.raw;
+  $("err").hidden = d.lfm.ok;
+  $("err").textContent = d.lfm.ok ? "" : "The local model didn't answer (" + d.lfm.error + "). The emergency check still ran.";
+  $("disc").textContent = d.disclaimer;
+  $("meta").textContent = d.lfm.ok ? `LFM3-1.7B Q4_0 · NPU · ${d.lfm.tokens} tokens · ${(d.lfm.ms / 1000).toFixed(1)} s` +
+                          (d.lfm.finish === "length" ? " · hit cap" : "") : "";
+  $("empty").hidden = true; $("answer").hidden = false;
+  if (window.innerWidth >= 900) window.scrollTo({ top: 0, behavior: "smooth" });
+  else (d.emergency ? $("sos") : $("out")).scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+$("form").addEventListener("submit", (e) => { e.preventDefault(); submit(); });
+$("form").addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); submit(); } });
+$("clear").addEventListener("click", () => {
+  $("form").reset(); resetSteps(); $("sos").hidden = true; $("answer").hidden = true; $("empty").hidden = false;
+  $("empty").querySelector(".big").textContent = "Your guidance appears here";
+  $("empty").querySelector("div:last-child").textContent = "Pick a demo case or type your own, then press Check symptoms.";
+});
+
+let armed = null;
+$("del").addEventListener("click", async () => {
+  const b = $("del");
+  if (!armed) {
+    b.classList.add("armed"); b.textContent = "Click again to delete everything";
+    armed = setTimeout(() => { armed = null; b.classList.remove("armed"); b.textContent = "Delete all my data"; }, 3500);
+    return;
+  }
+  clearTimeout(armed); armed = null;
+  b.disabled = true;
+  try { await fetch("/api/delete-all", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }); }
+  finally { b.disabled = false; b.classList.remove("armed"); b.textContent = "Deleted"; setTimeout(() => { b.textContent = "Delete all my data"; }, 1500); loadHistory(); }
+});
+
+health(); loadHistory(); setInterval(health, 15000);
+</script>
+</body>
+</html>
